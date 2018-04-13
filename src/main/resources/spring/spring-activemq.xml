@@ -1,0 +1,103 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+   xmlns:context="http://www.springframework.org/schema/context"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xmlns:amq="http://activemq.apache.org/schema/core"
+   xmlns:jms="http://www.springframework.org/schema/jms"
+   xsi:schemaLocation="
+   http://www.springframework.org/schema/beans     
+   http://www.springframework.org/schema/beans/spring-beans-4.1.xsd
+   http://www.springframework.org/schema/context 
+   http://www.springframework.org/schema/context/spring-context-4.1.xsd
+   http://www.springframework.org/schema/jms  
+   http://www.springframework.org/schema/jms/spring-jms-4.1.xsd
+   http://activemq.apache.org/schema/core  
+   http://activemq.apache.org/schema/core/activemq-core-5.13.3.xsd
+   http://www.springframework.org/schema/jms
+   http://www.springframework.org/schema/jms/spring-jms-4.1.xsd">
+	
+	<!-- 
+		可以使用spring嵌入启动
+		不推荐使用此方法，不详述
+	<bean id="broker" class="org.apache.activemq.xbean.BrokerFactoryBean"> 
+        <property name="config" value="classpath:activemq.xml" /> 
+        <property name="start" value="true" /> 
+    </bean>
+	 -->
+	
+	<!-- 
+		配置ConnectionFactory 
+		connectionFactory是Spring用于创建到JMS服务器链接的，Spring提供了多种connectionFactory
+		SingleConnectionFactory：对于建立JMS服务器链接的请求会一直返回同一个链接，并且会忽略Connection的close方法调用
+		CachingConnectionFactory：继承了SingleConnectionFactory，所以它拥有SingleConnectionFactory的所有功能，
+				同时它还新增了缓存功能，它可以缓存Session、MessageProducer和MessageConsumer
+		Spring提供的ConnectionFactory只是Spring用于管理ConnectionFactory的，真正产生到JMS服务器链接的ConnectionFactory还得是由JMS服务厂商提供，
+				并且需要把它注入到Spring提供的ConnectionFactory中(我们这里使用的是ActiveMQ实现的JMS，所以在我们这里真正的可以产生Connection的就应该是由ActiveMQ提供的ConnectionFactory)
+	-->  
+	<!-- ActiveMQ 连接工厂 -->
+    <!-- 真正可以产生Connection的ConnectionFactory，由对应的 JMS服务厂商提供-->
+    <!-- 如果连接网络：tcp://ip:61616；未连接网络：tcp://localhost:61616 以及用户名，密码-->
+    <amq:connectionFactory id="amqConnectionFactory"
+        brokerURL="tcp://localhost:61616" userName="admin" password="admin" />
+	
+    <!-- Spring Caching连接工厂 -->
+    <!-- Spring用于管理真正的ConnectionFactory的ConnectionFactory -->  
+    <bean id="connectionFactory" class="org.springframework.jms.connection.CachingConnectionFactory">
+        <!-- 目标ConnectionFactory对应真实的可以产生JMS Connection的ConnectionFactory -->  
+        <property name="targetConnectionFactory" ref="amqConnectionFactory"/>
+        <!-- 同上，同理 -->
+        <!-- <constructor-arg ref="amqConnectionFactory" /> -->
+        <!-- Session缓存数量 -->
+        <property name="sessionCacheSize" value="100" />
+    </bean>
+    
+    <!-- 
+    	配置生产者 
+    	利用Spring为我们提供的JmsTemplate类来实现,定义JmsTemplate的时候需要注入一个Spring提供的ConnectionFactory对象
+    	利用JmsTemplate进行消息发送的时候，我们需要知道发送哪种消息类型：一个是点对点的ActiveMQQueue，另一个就是支持订阅/发布模式的ActiveMQTopic
+    	其余参数请查看相对应类属性或文档 不一一列出
+    -->
+    <!-- Spring JmsTemplate 的消息生产者 start-->
+    <!-- 定义JmsTemplate的Queue类型 -->
+    <bean id="jmsQueueTemplate" class="org.springframework.jms.core.JmsTemplate">
+        <!-- 
+        	这个connectionFactory对应的是我们定义的Spring提供的那个ConnectionFactory对象
+        	通过构造函数方法应用缓存池 也可以使用ActiveMQ的PooledConnectionFactory 不过需要依赖activemq-pool.jar
+        	对应问题导航http://activemq.apache.org/jmstemplate-gotchas.html  
+        -->  
+        <constructor-arg ref="connectionFactory" />
+        <!-- 非pub/sub模型（发布/订阅），即队列模式 -->
+        <property name="pubSubDomain" value="false" />
+    </bean>
+    <!-- 定义JmsTemplate的Topic类型 -->
+    <bean id="jmsTopicTemplate" class="org.springframework.jms.core.JmsTemplate">
+        <!-- 这个connectionFactory对应的是我们定义的Spring提供的那个ConnectionFactory对象 -->  
+        <constructor-arg ref="connectionFactory" />
+        <!-- pub/sub模型（发布/订阅） -->
+        <property name="pubSubDomain" value="true" />
+    </bean>
+    <!--Spring JmsTemplate 的消息生产者 end-->
+	
+	<!-- 
+		配置消费者
+		(不建议使用JMSTemplate的receive（）)
+		每个消费者对应每个目的地都需要有对应的MessageListenerContainer
+		配置一个MessageListenerContainer的时候有三个属性必须指定：一个是表示从哪里监听的ConnectionFactory；
+														一个是表示监听什么的Destination；
+														一个是接收到消息以后进行消息处理的MessageListener。
+		其余参数请查看相对应类属性或文档 不一一列出
+	 -->
+	 <!-- 消息消费者 start-->
+	 <!-- 定义Queue监听器 -->
+    <jms:listener-container destination-type="queue" container-type="default" connection-factory="connectionFactory" acknowledge="auto">
+        <jms:listener destination="test.queue" ref="queueReceiver1"/>
+        <jms:listener destination="test.queue" ref="queueReceiver2"/>
+    </jms:listener-container>
+    
+    <!-- 定义Topic监听器 -->
+    <jms:listener-container destination-type="topic" container-type="default" connection-factory="connectionFactory" acknowledge="auto">
+        <jms:listener destination="test.topic" ref="topicReceiver1"/>
+        <jms:listener destination="test.topic" ref="topicReceiver2"/>
+    </jms:listener-container>
+    <!-- 消息消费者 end -->
+  
+</beans>

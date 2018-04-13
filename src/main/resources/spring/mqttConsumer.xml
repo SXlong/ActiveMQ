@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:int="http://www.springframework.org/schema/integration"  
+    xmlns:context="http://www.springframework.org/schema/context"  
+    xmlns:int-mqtt="http://www.springframework.org/schema/integration/mqtt"  
+    xsi:schemaLocation="  
+        http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration-4.1.xsd  
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-4.1.xsd  
+        http://www.springframework.org/schema/integration/mqtt http://www.springframework.org/schema/integration/mqtt/spring-integration-mqtt-4.1.xsd  
+        http://www.springframework.org/schema/context  
+        http://www.springframework.org/schema/context/spring-context-4.1.xsd">  
+	<!-- 
+		mqtt消费者配置文件
+	 -->  
+	<!-- mqtt客户端 -->  
+	<bean id="mqttFactory2"  class="org.springframework.integration.mqtt.core.DefaultMqttPahoClientFactory">  
+	    <property name="userName" value="admin" />  
+	    <property name="password" value="admin" />  
+	</bean>  
+	
+	<!-- 
+		Inbound(消息驱动)通道适配器	https://docs.spring.io/spring-integration/reference/html/mqtt.html(文档地址)
+		由MqttPahoMessageDrivenChannelAdapter实现
+		client-id:客户端ID
+		url:代理URL
+		topics:适配器会接受到消息的一组以逗号分隔的主题
+		qos:以逗号分隔的一组QoS值，可以是所有主题运用单一值，或者每一个主题一个值（列表必须同样长度）
+		converter:MqttMessageConverter(可选项)，默认DefaultPahoMessageConverter生成消息带字符串载荷(默认)，携带头部包括
+					mqtt_topic:接收消息主题	mqtt_duplicate:如果消息重复，值为true	mqtt_qos:业务质量 
+					DefaultPahoMessageConverter可配置为返回载荷原始byte[]类型，通过将其声明为一个实体类<bean/>，并且设定payloadAsBytes属性
+		client-factory:客户端工厂
+		send-timeout:发送超时-如果通道可能会阻塞，才会运用（例如当前已满的边界QueueChannel）
+		error-channel:错误通道-如果使用的话，ErrorMessage消息下行异常会发送至该通道，载荷为MessagingException，包含错误消息与原因
+		recovery-interval:恢复间隔-控制在故障之后适配器会尝试重新连接的时间间隔，默认为10000ms（10s）
+	 -->  
+	<int-mqtt:message-driven-channel-adapter  
+	    id="mqttInbound" client-id="client-spring-mqtt1" url="tcp://127.0.0.1:1883"  
+	    topics="robot_server"  
+	    qos="2"  
+	    client-factory="mqttFactory2"   
+	    auto-startup="true"  
+	    send-timeout="12"  
+	    channel="startCase" />  
+	    
+	<int:channel id="startCase" />  
+	
+	<bean id="clientService" class="com.lancer.activemq.mqtt2.ClientService" />  
+	  
+	<!-- 消息处理类 -->  
+	<int:service-activator id="startCaseService"  input-channel="startCase" ref="clientService" method="startCase" />  
+	  
+	  
+</beans>  

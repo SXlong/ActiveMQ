@@ -1,0 +1,93 @@
+一、数据库表格式
+
+activemq_msgs用于存储消息
+	ID：自增的数据库主键
+	CONTAINER：消息的Destination
+	MSGID_PROD：消息发送者客户端的主键
+	MSG_SEQ：是发送消息的顺序，MSGID_PROD+MSG_SEQ可以组成JMS的MessageID
+	EXPIRATION：消息的过期时间，存储的是从1970-01-01到现在的毫秒数
+	MSG：消息本体的Java序列化对象的二进制数据
+	PRIORITY：优先级，从0-9，数值越大优先级越高
+ 
+activemq_acks用于存储订阅关系。如果是持久化Topic，订阅者和服务器的订阅关系在这个表保存
+	CONTAINER：消息的Destination
+	SUB_DEST：如果是使用Static集群，这个字段会有集群其他系统的信息
+	CLIENT_ID：每个订阅者都必须有一个唯一的客户端ID用以区分
+	SUB_NAME：订阅者名称
+	SELECTOR：选择器，可以选择只消费满足条件的消息。条件可以用自定义属性实现，可支持多属性AND和OR操作
+	LAST_ACKED_ID：记录消费过的消息的ID
+
+表activemq_lock在集群环境中才有用，只有一个Broker可以获得消息，称为Master Broker，
+其他的只能作为备份等待Master Broker不可用，才可能成为下一个Master Broker。这个表用于记录哪个Broker是当前的Master Broker
+
+二、activemq区分消费者，是通过clientID和订户名称来区分的
+主要代码
+// 创建connection
+connection = connectionFactory.createConnection();
+connection.setClientID("bbb"); //持久订阅需要设置这个。
+connection.start();
+
+// 创建session
+Session session = connection.createSession(false,Session.AUTO_ACKNOWLEDGE);
+
+// 创建destination
+Topic topic = session.createTopic("userSyncTopic"); //Topic名称
+
+//MessageConsumer consumer = session.createConsumer(topic); //普通订阅
+MessageConsumer consumer = session.createDurableSubscriber(topic,"bbb"); //持久订阅
+
+消息的生产者，发送消息时用使用持久模式，不设置，默认就是持久的
+MessageProducer producer = ...;
+producer.setDeliveryMode(DeliveryMode.PERSISTENT);
+
+三、配置(配置持久化的方式，都是修改安装目录下conf/acticvemq.xml文件)
+1)持久化到数据库
+您可以使用语句元素来配置各种SQL数据类型 - 例如列大小等等(测试时未使用)
+<broker useJmx="false">
+  <persistenceAdapter>
+    <journaledJDBC useJournal="false">
+      <statements>
+        <statements stringIdDataType ="VARCHAR(128)"/>
+      </statements>
+    </journaledJDBC>
+  </persistenceAdapter>
+</broker>
+useJms：设置Broker的服务是否应该暴露给JMX,journaledJDBC：使用日记和JDBC创建默认持久性模型,useJournal：启用或禁用日志的使用。默认是使用日志
+
+<!-- 定义数据源 需要在lib下添加相应jar包-->
+<bean id="mysql-ds" class="org.apache.commons.dbcp2.BasicDataSource" destroy-method="close">
+ 	<property name="driverClassName" value="com.mysql.jdbc.Driver"/>
+	<property name="url" value="jdbc:mysql://localhost/activemq?relaxAutoCommit=true"/>
+	<property name="username" value="root"/>
+	<property name="password" value=""/>
+	<property name="poolPreparedStatements" value="true"/>
+</bean>
+<!-- 添加协议访问类型(测试不填也可) -->
+<transportConnectors>  
+    <transportConnector name="default" uri="tcp://localhost:61616"/>  
+</transportConnectors>  
+
+<!-- 修改默认配置 -->
+<persistenceAdapter>  
+    <jdbcPersistenceAdapter directory="${activemq.base}/data" dataSource="#mysql-ds" createTablesOnStartup="false"/>   
+</persistenceAdapter>
+
+<!-- 
+	另一种高效方式
+	在消息消费者能跟上生产者的速度时，journal文件能大大减少需要写入到DB中的消息。
+	举个例子：生产者产生了10000个消息，这10000个消息会保存到journal文件中，但是消费者的速度很快，在journal文件还未同步到DB之前，以消费了9900个消息。
+	那么后面就只需要写入100个消息到DB了。如果消费者不能跟上生产者的速度，journal文件可以使消息以批量的方式写入DB中，JDBC驱动进行DB写入的优化。从而提升了性能。
+	另外，journal文件支持JMS事务的一致性 
+	优点： 比jdbdc store 写入速度快
+	缺点：不用用于master/slave 模式
+-->
+<persistenceFactory>
+	 <journalPersistenceAdapterFactory journalLogFiles="2" journalLogFileSize="16" useJournal="true" useQuickJournal="true" dataSource="#mysql-ds" dataDirectory="${activemq.data}/data"/>
+</persistenceFactory>
+
+2)基于内存的消息存储方式
+<broker persistent="false">
+	<persistenceAdapter>
+   		<jdbcPersistenceAdaptedirectory="${activemq.data}" dataSource="#mysqlDataSource"/>
+	</persistenceAdapter>
+</broker>
